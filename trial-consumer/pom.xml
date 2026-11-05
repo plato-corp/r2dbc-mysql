@@ -1,0 +1,6 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>io.theplato.trial</groupId><artifactId>driver-consumer</artifactId><version>1</version>
+  <repositories><repository><id>github</id><url>https://maven.pkg.github.com/plato-corp/r2dbc-mysql</url></repository></repositories>
+  <dependencies><dependency><groupId>io.asyncer</groupId><artifactId>r2dbc-mysql</artifactId><version>1.4.3-plato.1</version></dependency></dependencies>
+</project>
