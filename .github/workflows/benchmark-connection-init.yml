@@ -1,0 +1,62 @@
+name: Connection initialization benchmark
+on:
+  push:
+    branches: [bench/connection-init-select]
+permissions:
+  contents: read
+jobs:
+  benchmark:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+      - name: Start isolated MySQL 8.4.8
+        run: |
+          docker run -d --name benchmark-mysql --cpus=2 -p 3306:3306 \
+            -e MYSQL_ROOT_PASSWORD=benchmark-root -e MYSQL_DATABASE=bench \
+            -e MYSQL_USER=bench -e MYSQL_PASSWORD=benchmark-only \
+            mysql:8.4.8 --max-connections=512 --performance-schema=ON
+          for i in {1..60}; do
+            if docker exec benchmark-mysql mysqladmin ping -uroot -pbenchmark-root --silent; then break; fi
+            sleep 2
+          done
+          docker exec benchmark-mysql mysql -uroot -pbenchmark-root -e 'SELECT VERSION();'
+      - name: Build baseline and patched artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir benchmark-jars
+          ./mvnw -B -pl r2dbc-mysql -am package -Dmaven.test.skip=true -Dcheckstyle.skip=true -Dmaven.javadoc.skip=true > baseline-build.log 2>&1
+          cp r2dbc-mysql/target/r2dbc-mysql-1.4.3.jar benchmark-jars/baseline.jar
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('r2dbc-mysql/src/main/java/io/asyncer/r2dbc/mysql/InitFlow.java')
+          s = p.read_text()
+          old = '"SHOW VARIABLES LIKE \'innodb_lock_wait_timeout\'"'
+          assert s.count(old) == 1
+          s = s.replace(old, '"SELECT CAST(@@SESSION.innodb_lock_wait_timeout AS CHAR)"')
+          old = 'String value = readable.get(1, String.class);'
+          assert s.count(old) == 1
+          p.write_text(s.replace(old, 'String value = readable.get(0, String.class);'))
+          PY
+          git diff > benchmark-jars/driver.patch
+          ./mvnw -B -pl r2dbc-mysql -am package -Dmaven.test.skip=true -Dcheckstyle.skip=true -Dmaven.javadoc.skip=true > patched-build.log 2>&1
+          cp r2dbc-mysql/target/r2dbc-mysql-1.4.3.jar benchmark-jars/patched.jar
+          ./mvnw -B -f r2dbc-mysql/pom.xml dependency:build-classpath -Dmdep.outputFile=target/benchmark-classpath.txt -DincludeScope=test > classpath.log 2>&1
+          javac -cp "benchmark-jars/baseline.jar:$(cat r2dbc-mysql/target/benchmark-classpath.txt)" benchmarks/connection-init/ConnectionInitBenchmark.java
+      - name: Compare paired ABBA runs
+        run: python3 benchmarks/connection-init/run.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: connection-init-results
+          path: |
+            benchmark-results/
+            benchmark-jars/driver.patch
+            *build.log
+            classpath.log
