@@ -26,6 +26,7 @@ jobs:
             sleep 2
           done
           docker exec benchmark-mysql mysql -uroot -pbenchmark-root -e 'SELECT VERSION();'
+          docker cp benchmark-mysql:/var/lib/mysql/public_key.pem benchmark-public-key.pem
       - name: Build baseline and patched artifacts
         shell: bash
         run: |

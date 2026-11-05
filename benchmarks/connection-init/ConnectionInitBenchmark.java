@@ -12,7 +12,7 @@ public final class ConnectionInitBenchmark {
     static final MySqlConnectionFactory FACTORY = MySqlConnectionFactory.from(
         MySqlConnectionConfiguration.builder().host("127.0.0.1").port(3306)
             .user("bench").password("benchmark-only").database("bench")
-            .sslMode(SslMode.DISABLED).connectTimeout(Duration.ofSeconds(10)).build());
+            .serverRSAPublicKeyFile("benchmark-public-key.pem").sslMode(SslMode.DISABLED).connectTimeout(Duration.ofSeconds(10)).build());
 
     public static void main(String[] args) {
         String variant = args[0];
@@ -25,12 +25,14 @@ public final class ConnectionInitBenchmark {
         int column = variant.equals("baseline") ? 1 : 0;
         long[] timings = new long[count];
         AtomicInteger errors = new AtomicInteger();
+        AtomicInteger warmupErrors = new AtomicInteger();
         if (mode.equals("sql")) {
             // Persistent connections isolate the variable query from handshake and authentication.
-            runSql(sql, column, concurrency, 512, new long[512], new AtomicInteger());
+            runSql(sql, column, concurrency, 512, new long[512], warmupErrors);
         } else {
-            runConnections(concurrency, 256, new long[256], new AtomicInteger());
+            runConnections(concurrency, 256, new long[256], warmupErrors);
         }
+        if (warmupErrors.get() != 0) throw new AssertionError("Warmup failed");
         long start = System.nanoTime();
         if (mode.equals("sql")) runSql(sql, column, concurrency, count, timings, errors);
         else runConnections(concurrency, count, timings, errors);
