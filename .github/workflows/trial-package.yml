@@ -25,6 +25,17 @@ jobs:
           distribution: temurin
           java-version: '17'
           cache: maven
+      - name: Isolate legacy SQL compatibility from old server TLS ciphers
+        if: matrix.version == '5.7.44'
+        run: |
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          p = Path('r2dbc-mysql/src/test/java/io/asyncer/r2dbc/mysql/internal/util/TestContainerExtension.java')
+          s = p.read_text()
+          old = '.withCommand("--local-infile=true",'
+          assert s.count(old) == 1
+          p.write_text(s.replace(old, '.withCommand("--skip-ssl", "--local-infile=true",'))
+          PYCODE
       - name: Unit tests, checkstyle and session integration tests
         run: |
           ./mvnw -B -pl r2dbc-mysql -am verify -Dmaven.javadoc.skip=true \
